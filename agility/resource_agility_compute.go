@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/pogo61/terraform-provider-agility/agility/api"
+	"github.com/csc/csc-agility-terraform-provider-plug-in/agility/api"
 	"github.com/hashicorp/terraform/helper/schema"
 )
 
@@ -675,7 +675,10 @@ func resourceAgilityComputeCreate(ResourceData *schema.ResourceData, meta interf
 					UpdateTopologyName(ResourceData,topologyId)
 					StartTopology(ResourceData,topologyId)
 					ResourceData.SetId(topologyId)
-					UpdateInstanceName(ResourceData,topologyId)
+					errUIN := UpdateInstanceName(ResourceData,topologyId)
+					if errUIN != nil {
+						return errUIN
+					}
 				} else {
 					topologyId := ResourceData.Get("TopologyId").(string)
 					UpdateTopologyName(ResourceData,topologyId)
@@ -727,7 +730,10 @@ func resourceAgilityComputeUpdate(d *schema.ResourceData, meta interface{}) erro
 			d.SetId(topologyId)
 			createdStopped := d.Get("CreatedStopped")
 			if createdStopped.(bool) {
-				UpdateInstanceName(d,topologyId)
+				errUIN := UpdateInstanceName(d,topologyId)
+				if errUIN != nil {
+					return errUIN
+				}
 				d.Set("CreatedStopped", false)
 			}
 		} else if d.Get("active").(string) == "false" {
@@ -741,10 +747,13 @@ func resourceAgilityComputeUpdate(d *schema.ResourceData, meta interface{}) erro
     // if the name resource variable has changed then change the topology name
     // and the name of the instance(s)
     if d.HasChange("name") {
-    	topologyId := d.Get("TopologyId").(string)
-    	UpdateTopologyName(d,topologyId)
-    	d.SetId(topologyId)
-    	UpdateInstanceName(d,topologyId)
+	topologyId := d.Get("TopologyId").(string)
+	UpdateTopologyName(d,topologyId)
+	d.SetId(topologyId)
+	errUIN := UpdateInstanceName(d,topologyId)
+	if errUIN != nil {
+		return errUIN
+	}
     }
 	
 	return nil
@@ -1083,8 +1092,8 @@ func UpdateInstanceName(d *schema.ResourceData, topologyId string) error {
 			} else {
 				// if there ins't a parent (No 'Cloud Afinity' was defined) then get the original topology's instance
 				// and create instance struct, change it's name and call the API to update it
-				if len(a.AList) > 0 {
-					if a.AList[i].Topology.Id == topologyId {
+				if a.AList[i].Stats.NumInstances !=  "0" {
+					if a.AList[i].Instances != nil && len(a.AList[i].Instances) > 0 {
 						instanceId = a.AList[i].Instances[0].Id
 						log.Println("instanceId is : ", instanceId)
 						log.Println("len(a.AList[i].Instances) is : ", len(a.AList[i].Instances))
@@ -1110,7 +1119,7 @@ func UpdateInstanceName(d *schema.ResourceData, topologyId string) error {
 							//marshall into XML
 							xmlStr, err := xml.MarshalIndent(inst, "", "    ")
 							if err != nil {
-								log.Printf("error: %v\n", err)													
+								log.Printf("error: %v\n", err)
 							}
 
 							update := xml.Header + string(xmlStr)
@@ -1122,11 +1131,12 @@ func UpdateInstanceName(d *schema.ResourceData, topologyId string) error {
 							log.Println("\n response is:",string(response))
 							instanceUpdated = true
 						}
+					} else {
+						return errors.New("UpdateInstanceName: template contained no instances")
 					}
 				} else {
-					return errors.New("The Blueprint has no Versions")
+					return errors.New("UpdateInstanceName: template in Error State, please check while it contained no instances")
 				}
-				
 			}
 			
 		}
